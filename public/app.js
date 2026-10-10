@@ -61,8 +61,33 @@
     return el;
   }
 
+  // Each role keeps the same color in every chart on the page.
+  const ROLE_COLOR_VARS = ['--series-1', '--series-2', '--series-3'];
+  const roleColor = (data, role) => css(ROLE_COLOR_VARS[data.roles.indexOf(role)]);
+
+  // Shared x-axis maximum for the bar charts: at least SCALE_MAX, rounded up
+  // to the next 0.1 so the longest bar always fits.
+  function barMax(data) {
+    const top = Math.max(...data.matrix.flat());
+    return Math.min(1, Math.max(SCALE_MAX, Math.ceil(top * 10) / 10));
+  }
+
+  /** HTML legend: `items` is a list of { label, color, shape: 'circle' | 'square' | 'line' }. */
+  function renderLegend(id, items) {
+    document.getElementById(id).replaceChildren(...items.map((item) => {
+      const span = document.createElement('span');
+      const key = document.createElement('i');
+      key.className = `sim-key sim-key-${item.shape}`;
+      if (item.color) key.style.background = item.color;
+      span.append(key, item.label);
+      return span;
+    }));
+  }
+
   // ---------- role fit bars ----------
-  function renderRoleBars(roleScores) {
+  function renderRoleBars(data) {
+    const { roleScores } = data;
+    const max = barMax(data);
     const container = document.getElementById('roleBars');
     const width = Math.max(280, container.clientWidth);
     // On narrow screens the role name sits above its bar instead of beside it.
@@ -77,12 +102,12 @@
 
     roleScores.forEach((r, i) => {
       const y = i * rowH + 8;
-      const barW = Math.max(2, (Math.max(r.average, 0) / SCALE_MAX) * plotW);
+      const barW = Math.max(2, (Math.max(r.average, 0) / max) * plotW);
       const g = svgEl('g', {});
       g.append(
         svgEl('text', { x: 0, y: stacked ? y + 14 : y + 20, 'font-size': 14, fill: css('--text-primary') }, r.role),
         svgEl('rect', { x: labelW, y: y + barY, width: plotW, height: 22, rx: 4, fill: css('--grid'), opacity: 0.5 }),
-        svgEl('rect', { x: labelW, y: y + barY, width: Math.min(barW, plotW), height: 22, rx: 4, fill: css('--series-1') }),
+        svgEl('rect', { x: labelW, y: y + barY, width: Math.min(barW, plotW), height: 22, rx: 4, fill: roleColor(data, r.role) }),
         svgEl('text', { x: labelW + plotW + 10, y: y + barY + 16, 'font-size': 14, 'font-weight': 600, fill: css('--text-primary') }, `${fmt(r.average)} · ${r.strength}`),
         // Invisible full-row hit target for the tooltip.
         svgEl('rect', { x: 0, y, width, height: rowH - 4, fill: 'transparent' })
@@ -90,6 +115,78 @@
       attachTooltip(g, `${r.role}: average similarity ${fmt(r.average)} (${r.strength}). Closest characteristic: ${r.closestTrait}.`);
       svg.append(g);
     });
+    container.replaceChildren(svg);
+  }
+
+  // ---------- every characteristic vs every role (grouped bars) ----------
+  function renderTraitBars(data) {
+    const container = document.getElementById('traitBars');
+    const width = Math.max(280, container.clientWidth);
+    // On narrow screens the characteristic sits above its group of bars.
+    const stacked = width < 520;
+    const labelW = stacked ? 0 : 170;
+    const valueW = 44;
+    const plotW = width - labelW - valueW;
+    const barH = 14;
+    const barGap = 2; // surface gap between adjacent bars
+    const header = stacked ? 20 : 0;
+    const groupGap = 18;
+    const barsH = data.roles.length * (barH + barGap) - barGap;
+    const groupH = header + barsH + groupGap;
+    const axisH = 22;
+    const top = 6;
+    const height = top + data.traits.length * groupH - groupGap + axisH + 8;
+    const max = barMax(data);
+    const sx = (v) => labelW + (Math.max(v, 0) / max) * plotW;
+
+    const svg = svgEl('svg', { viewBox: `0 0 ${width} ${height}`, role: 'img', 'aria-label': 'Similarity of each characteristic to each role' });
+
+    // Recessive vertical grid with tick labels along the bottom.
+    const step = plotW < 320 ? 0.2 : 0.1;
+    const axisY = top + data.traits.length * groupH - groupGap + 4;
+    for (let t = 0; t <= max + 1e-9; t += step) {
+      const x = sx(t);
+      svg.append(
+        svgEl('line', { x1: x, y1: top, x2: x, y2: axisY, stroke: css('--grid'), 'stroke-width': 1 }),
+        svgEl('text', { x, y: axisY + 16, 'font-size': 11, 'text-anchor': 'middle', fill: css('--text-muted') }, t.toFixed(1))
+      );
+    }
+
+    data.traits.forEach((trait, i) => {
+      const gy = top + i * groupH;
+      const row = data.matrix[i];
+      const bestIdx = row.indexOf(Math.max(...row));
+      svg.append(svgEl('text', {
+        x: 0,
+        y: stacked ? gy + 14 : gy + barsH / 2 + 5,
+        'font-size': 14,
+        'font-weight': 600,
+        fill: css('--text-primary'),
+      }, trait));
+
+      data.roles.forEach((role, j) => {
+        const score = row[j];
+        const y = gy + header + j * (barH + barGap);
+        const w = Math.max(2, sx(score) - labelW);
+        const isBest = j === bestIdx;
+        const g = svgEl('g', {});
+        g.append(
+          svgEl('rect', { x: labelW, y, width: w, height: barH, rx: 4, fill: roleColor(data, role) }),
+          svgEl('text', {
+            x: labelW + w + 6,
+            y: y + barH - 3,
+            'font-size': 12,
+            'font-weight': isBest ? 700 : 400,
+            fill: css(isBest ? '--text-primary' : '--text-secondary'),
+          }, fmt(score)),
+          // Hit target taller than the bar itself.
+          svgEl('rect', { x: labelW, y: y - 1, width: plotW + valueW, height: barH + barGap, fill: 'transparent' })
+        );
+        attachTooltip(g, `"${trait}" vs "${role}": ${fmt(score)} (${strength(score)})${isBest ? ' – closest role' : ''}`);
+        svg.append(g);
+      });
+    });
+
     container.replaceChildren(svg);
   }
 
@@ -154,8 +251,8 @@
       const isRole = p.kind === 'role';
       const g = svgEl('g', {});
       const mark = isRole
-        ? svgEl('rect', { x: cx - 7, y: cy - 7, width: 14, height: 14, rx: 2, fill: css('--series-2'), stroke: css('--surface-1'), 'stroke-width': 2 })
-        : svgEl('circle', { cx, cy, r: 6, fill: css('--series-1'), stroke: css('--surface-1'), 'stroke-width': 2 });
+        ? svgEl('rect', { x: cx - 7, y: cy - 7, width: 14, height: 14, rx: 2, fill: roleColor(data, p.label), stroke: css('--surface-1'), 'stroke-width': 2 })
+        : svgEl('circle', { cx, cy, r: 6, fill: css('--trait-mark'), stroke: css('--surface-1'), 'stroke-width': 2 });
       const anchorRight = cx > width / 2;
       g.append(
         svgEl('circle', { cx, cy, r: 16, fill: 'transparent' }),
@@ -192,6 +289,12 @@
     }));
   }
 
+  function renderCharts(data) {
+    renderRoleBars(data);
+    renderTraitBars(data);
+    renderMap(data);
+  }
+
   let lastData;
 
   function render(data) {
@@ -201,13 +304,19 @@
     document.getElementById('bestRoleDetail').textContent =
       `Average similarity ${fmt(best.average)} (${best.strength}). Its closest characteristic is “${best.closestTrait}”.`;
     renderHeatmap(data);
+    const roleItems = data.roles.map((role) => ({ label: role, color: roleColor(data, role), shape: 'square' }));
+    renderLegend('traitBarsLegend', roleItems);
+    renderLegend('mapLegend', [
+      { label: 'Personal characteristic', color: css('--trait-mark'), shape: 'circle' },
+      ...roleItems,
+      { label: 'Link to closest role', shape: 'line' },
+    ]);
     renderTraitMatches(data.traitMatches);
     document.getElementById('modelNote').textContent =
       `Model: ${data.model}. For this model, scores above about 0.5 indicate a strong relation and below 0.15 almost none.`;
     results.classList.remove('hidden');
     // Draw charts after the section is visible so its width is known.
-    renderRoleBars(data.roleScores);
-    renderMap(data);
+    renderCharts(data);
     results.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
@@ -217,8 +326,7 @@
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
       if (lastData && !results.classList.contains('hidden')) {
-        renderRoleBars(lastData.roleScores);
-        renderMap(lastData);
+        renderCharts(lastData);
       }
     }, 150);
   });

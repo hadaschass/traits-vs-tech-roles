@@ -56,6 +56,11 @@
       <p class="hint">The average similarity between the role and all 5 characteristics.</p>
       <div id="roleBars" class="sim-figure"></div>
 
+      <h3>Similarity of each characteristic to each role</h3>
+      <p class="hint">One group per characteristic and one bar per role. Longer bars mean closer in meaning, and the closest role's score is in bold.</p>
+      <div id="traitBarsLegend" class="sim-legend sim-legend-top"></div>
+      <div id="traitBars" class="sim-figure"></div>
+
       <h3>Every characteristic against every role</h3>
       <p class="hint">Cosine similarity: 1 means the same meaning and 0 means unrelated. Darker cells are closer in meaning. The highest score in each row is outlined.</p>
       <div class="sim-table-wrap"><table id="heatmap" class="sim-heatmap"></table></div>
@@ -66,11 +71,7 @@
       <h3>Semantic map</h3>
       <p class="hint">All 8 items projected to 2D (PCA). Items that are closer in meaning sit closer together. Each line links a characteristic to its closest role.</p>
       <div id="semanticMap" class="sim-figure"></div>
-      <div class="sim-legend">
-        <span><i class="sim-key sim-key-trait"></i>Personal characteristic</span>
-        <span><i class="sim-key sim-key-role"></i>Technology role</span>
-        <span><i class="sim-key sim-key-link"></i>Link to closest role</span>
-      </div>
+      <div id="mapLegend" class="sim-legend"></div>
 
       <h3>Closest role for each characteristic</h3>
       <ul id="traitMatches" class="sim-list"></ul>
